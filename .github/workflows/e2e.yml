@@ -1,0 +1,69 @@
+name: e2e
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  KIND_VERSION: 0.33.0
+  KIND_SHA256: aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
+  KUBECTL_VERSION: 1.35.8
+  KUBECTL_SHA256: 874d5e72dbb819f43cff16bcd1e4f8bac5b7f2361fe1e55049b0a6c676fb0cbf
+
+jobs:
+  kind:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install kind and kubectl
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin" && cd "$RUNNER_TEMP/bin"
+          curl -fsSLo kind "https://github.com/kubernetes-sigs/kind/releases/download/v${KIND_VERSION}/kind-linux-amd64"
+          echo "${KIND_SHA256}  kind" | sha256sum -c
+          curl -fsSLo kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          echo "${KUBECTL_SHA256}  kubectl" | sha256sum -c
+          chmod +x kind kubectl
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Write the sealing key
+        env:
+          SEALED_SECRETS_KEY: ${{ secrets.SEALED_SECRETS_KEY }}
+        run: |
+          if [ -z "$SEALED_SECRETS_KEY" ]; then
+            echo "::error::Repository secret SEALED_SECRETS_KEY is not available (pull requests from forks do not get it)."
+            exit 1
+          fi
+          umask 077
+          printf '%s\n' "$SEALED_SECRETS_KEY" > "$RUNNER_TEMP/sealed-secrets.key"
+      # Argo CD pulls this repository from GitHub at the commit under test.
+      - name: Create the cluster and let Argo CD sync everything
+        env:
+          SEALED_SECRETS_KEY: ${{ runner.temp }}/sealed-secrets.key
+          TARGET_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+          TIMEOUT: '1200'
+        run: scripts/up.sh
+      - name: Login page returns HTTP 200
+        run: scripts/smoke-test.sh
+      - name: Diagnostics
+        if: failure()
+        run: |
+          set +e
+          kubectl -n argocd get applications.argoproj.io -o wide
+          for app in $(kubectl -n argocd get applications.argoproj.io -o name); do
+            echo "--- $app"; kubectl -n argocd get "$app" -o jsonpath='{.status.conditions}{"\n"}{.status.operationState.message}{"\n"}{.status.resources}{"\n"}'
+          done
+          kubectl get pods -A -o wide
+          kubectl get events -A --sort-by=.lastTimestamp | tail -n 80
+          kubectl -n warehouse-dev get cluster.postgresql.cnpg.io,sealedsecret,secret,deploy,svc
+          kubectl -n warehouse-dev describe pods
+          kubectl -n warehouse-dev logs deployment/warehouse --tail=200
+          kubectl -n kube-system logs deployment/sealed-secrets-controller --tail=100

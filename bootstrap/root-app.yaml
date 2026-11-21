@@ -1,0 +1,42 @@
+# Root of the app-of-apps: Argo CD renders clusters/kind, which contains one
+# Application per platform component and per application environment.
+#
+# The kustomize patch makes every child Application that reads from this
+# repository (label gitops-platform/source: this-repo) follow the same
+# revision as the root. scripts/up.sh replaces both "main" values with
+# TARGET_REVISION, so CI tests exactly the commit under test.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Jarru01/gitops-platform.git
+    targetRevision: main
+    path: clusters/kind
+    kustomize:
+      patches:
+        - target:
+            kind: Application
+            labelSelector: gitops-platform/source=this-repo
+          patch: |-
+            - op: replace
+              path: /spec/source/targetRevision
+              value: main
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

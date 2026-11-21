@@ -1,0 +1,45 @@
+# Sealed Secrets controller: decrypts the SealedSecret resources committed in
+# apps/ into ordinary Secrets inside the cluster. Its private key is created
+# by scripts/up.sh before this controller starts (see README, "Secrets").
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sealed-secrets
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://bitnami-labs.github.io/sealed-secrets
+    chart: sealed-secrets
+    targetRevision: 2.22.0 # controller v0.41.2
+    helm:
+      releaseName: sealed-secrets
+      valuesObject:
+        # The name kubeseal looks for by default.
+        fullnameOverride: sealed-secrets-controller
+        # Keep the key that up.sh created; never rotate it on its own, so
+        # the sealed values in Git stay decryptable.
+        keyrenewperiod: "0"
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            memory: 128Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

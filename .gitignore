@@ -1,0 +1,3 @@
+# Private keys and unsealed secrets never belong in Git.
+*.key
+*.unsealed.yaml

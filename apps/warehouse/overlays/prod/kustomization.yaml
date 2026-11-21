@@ -1,0 +1,47 @@
+# Prod environment. No cluster deploys it yet: CI only renders and validates
+# it. Phase 2 adds promotion from dev to prod, Phase 3 the ingress with TLS and
+# Phase 4 a real cluster on OpenStack (see README, "Roadmap"). The domain and
+# mail server below are placeholders until then.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: warehouse-prod
+resources:
+  - ../../base
+  - sealed-secrets.yaml
+images:
+  - name: ghcr.io/jarru01/warehouse-management-app
+    newTag: sha-57f49f09564b742941997f982325a1ad22ad3578
+configMapGenerator:
+  - name: warehouse-config
+    behavior: merge
+    literals:
+      - PUBLIC_URL=https://warehouse.example.com
+      - MAIL_HOST=smtp.example.com
+      - MAIL_FROM=Warehouse App <noreply@warehouse.example.com>
+patches:
+  # Decrypt the credentials before the database and the app need them.
+  - target:
+      kind: SealedSecret
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          argocd.argoproj.io/sync-wave: "-1"
+  - target:
+      kind: Deployment
+      name: warehouse
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+  # A primary and one streaming replica, with more storage.
+  - target:
+      kind: Cluster
+      name: warehouse-db
+    patch: |-
+      - op: replace
+        path: /spec/instances
+        value: 2
+      - op: replace
+        path: /spec/storage/size
+        value: 10Gi

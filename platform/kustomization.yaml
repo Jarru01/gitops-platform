@@ -1,0 +1,7 @@
+# Cluster-wide components every environment needs. Phase 1 contains only the
+# PostgreSQL operator and the Sealed Secrets controller.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - sealed-secrets/application.yaml
+  - cloudnative-pg/application.yaml

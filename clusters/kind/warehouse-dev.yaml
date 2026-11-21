@@ -1,0 +1,31 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: warehouse-dev
+  namespace: argocd
+  labels:
+    # The root Application points this source at its own revision.
+    gitops-platform/source: this-repo
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Jarru01/gitops-platform.git
+    targetRevision: main
+    path: apps/warehouse/overlays/dev
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: warehouse-dev
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

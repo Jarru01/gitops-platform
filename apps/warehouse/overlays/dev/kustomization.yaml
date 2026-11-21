@@ -1,0 +1,32 @@
+# Dev environment, deployed to the kind cluster by clusters/kind/warehouse-dev.yaml.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: warehouse-dev
+resources:
+  - ../../base
+  - sealed-secrets.yaml
+images:
+  # Built and pushed by .github/workflows/build.yml in warehouse-management-app
+  # (commit 57f49f0). Phase 2 replaces this manual bump with automated PRs.
+  - name: ghcr.io/jarru01/warehouse-management-app
+    newTag: sha-57f49f09564b742941997f982325a1ad22ad3578
+configMapGenerator:
+  - name: warehouse-config
+    behavior: merge
+    literals:
+      # Reached through kubectl port-forward (see README).
+      - PUBLIC_URL=http://localhost:8080
+      # No TLS in front of the app until Phase 3 (ingress + TLS), so the
+      # session cookie must also work over plain HTTP.
+      - SERVER_SERVLET_SESSION_COOKIE_SECURE=false
+      # No mail server in dev: password-recovery e-mails are not delivered.
+      - MAIL_HOST=smtp.invalid
+patches:
+  # Decrypt the credentials before the database and the app need them.
+  - target:
+      kind: SealedSecret
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          argocd.argoproj.io/sync-wave: "-1"

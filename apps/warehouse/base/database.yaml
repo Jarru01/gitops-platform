@@ -1,0 +1,25 @@
+# PostgreSQL for the app, run by the CloudNativePG operator. The database and
+# owner match compose.yaml of warehouse-management-app (database "sklad", user
+# "warehouse"); the owner's password comes from the sealed Secret
+# warehouse-db-credentials (type kubernetes.io/basic-auth).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: warehouse-db
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.11-system-trixie
+  bootstrap:
+    initdb:
+      database: sklad
+      owner: warehouse
+      secret:
+        name: warehouse-db-credentials
+  storage:
+    size: 1Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
