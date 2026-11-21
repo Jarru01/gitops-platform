@@ -43,12 +43,14 @@ jobs:
           tar -xzf kustomize.tar.gz -C bin kustomize
           tar -xzf kubeconform.tar.gz -C bin kubeconform
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      # CustomResourceDefinitions are skipped: the schema repository has none
+      # for them, and the only ones here come unchanged from the Argo CD release.
       - name: kustomize build and kubeconform every kustomization
         run: |
           status=0
           for dir in $(find . -name kustomization.yaml -not -path './.git/*' -exec dirname {} \; | sort); do
             echo "::group::$dir"
-            if kustomize build "$dir" | kubeconform -strict -summary \
+            if kustomize build "$dir" | kubeconform -strict -summary -skip CustomResourceDefinition \
                 -kubernetes-version "$KUBERNETES_VERSION" \
                 -schema-location "$K8S_SCHEMAS" -schema-location "$CRD_SCHEMAS"; then
               echo "::endgroup::"

@@ -24,6 +24,6 @@ while true; do
     echo "$status" >&2
     exit 1
   fi
-  echo "[$(date +%T)] waiting:" $(echo "$status" | tr '\n' ';')
+  echo "[$(date +%T)] waiting: $(tr '\n' ';' <<<"$status")"
   sleep 15
 done

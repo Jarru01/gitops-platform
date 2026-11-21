@@ -6,9 +6,11 @@ ignore: |
 rules:
   line-length:
     max: 140
-    # Sealed values are long base64 strings.
+    # Sealed values are long base64 strings; workflows hold pinned URLs and
+    # shell one-liners.
     ignore: |
       **/sealed-secrets.yaml
+      .github/workflows/
   document-start: disable
   truthy:
     # GitHub Actions uses the key "on".
