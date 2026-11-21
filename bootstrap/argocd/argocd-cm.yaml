@@ -1,6 +1,9 @@
 # Argo CD does not assess the health of child Applications by default. This
 # health check lets the root app-of-apps wait for each sync wave (platform
 # first, then the warehouse app) to become Healthy before starting the next.
+# A child counts as Healthy only once it is also Synced: an Application whose
+# manifests cannot even be rendered has no resources and would otherwise
+# report Healthy.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -14,6 +17,10 @@ data:
       hs.status = obj.status.health.status
       if obj.status.health.message ~= nil then
         hs.message = obj.status.health.message
+      end
+      if hs.status == "Healthy" and (obj.status.sync == nil or obj.status.sync.status ~= "Synced") then
+        hs.status = "Progressing"
+        hs.message = "Waiting for the Application to be Synced"
       end
     end
     return hs
