@@ -14,48 +14,48 @@ answers with HTTP 200.
 
 ## How it fits together
 
-```mermaid
-flowchart LR
-  subgraph github[GitHub]
-    appRepo[warehouse-management-app] -- "build.yml: push image" --> ghcr[(ghcr.io/jarru01/<br/>warehouse-management-app)]
-    repo[gitops-platform<br/>this repository]
-  end
+Two repositories are involved. **warehouse-management-app** holds the
+application code; its CI builds the Docker image and pushes it to GitHub
+Container Registry as `ghcr.io/jarru01/warehouse-management-app:sha-<commit>`.
+**This repository** holds everything that runs in the cluster, as plain YAML.
+Nothing is deployed with `kubectl apply` by hand apart from the bootstrap;
+Argo CD reads this repository and makes the cluster match it.
 
-  subgraph kind[kind cluster]
-    subgraph argocd[namespace argocd]
-      root[Application root<br/>clusters/kind]
-      ss[Application sealed-secrets<br/>wave -1]
-      cnpg[Application cloudnative-pg<br/>wave -1]
-      wh[Application warehouse-dev<br/>wave 0]
-    end
-    ssc[Sealed Secrets controller<br/>kube-system]
-    op[CloudNativePG operator<br/>cnpg-system]
-    subgraph dev[namespace warehouse-dev]
-      sealed[SealedSecrets] --> secrets[Secrets]
-      db[(PostgreSQL 17<br/>CNPG Cluster)]
-      deploy[Deployment warehouse] --> svc[Service warehouse]
-    end
-  end
+From an empty machine to a running app, in order:
 
-  repo -- "Argo CD pulls" --> root
-  root --> ss & cnpg & wh
-  ss --> ssc
-  cnpg --> op
-  wh --> sealed & db & deploy
-  ssc -. decrypts .-> sealed
-  op -. runs .-> db
-  secrets -.-> db & deploy
-  deploy -- JDBC --> db
-  ghcr -- "image pull" --> deploy
-```
+1. **Bootstrap** (`scripts/up.sh`). Creates a single-node kind cluster, stores
+   the Sealed Secrets private key in `kube-system`, installs Argo CD into the
+   `argocd` namespace and applies exactly one object: the root Application.
+2. **App-of-apps** (`bootstrap/root-app.yaml` → `clusters/kind/`). The root
+   Application points Argo CD at `clusters/kind` in this repository. That
+   folder contains no workloads, only three more Argo CD Applications:
+   `sealed-secrets`, `cloudnative-pg` and `warehouse-dev`. Argo CD creates
+   them and from then on manages each one separately.
+3. **Platform, sync wave -1** (`platform/`). `sealed-secrets` installs the
+   Sealed Secrets controller into `kube-system` and `cloudnative-pg` installs
+   the CloudNativePG operator into `cnpg-system`, both from pinned Helm charts.
+   The controller finds the key from step 1 and adopts it instead of creating
+   its own. The root Application waits until both are Synced and Healthy,
+   because the warehouse app needs their custom resource types.
+4. **Warehouse app, sync wave 0** (`apps/warehouse/overlays/dev`). The
+   `warehouse-dev` Application deploys into the `warehouse-dev` namespace, in
+   its own order:
+   - the two SealedSecrets, which the controller decrypts into the Secrets
+     `warehouse-db-credentials` (database user and password) and
+     `warehouse-app-secrets` (temporary director password);
+   - the CloudNativePG `Cluster` `warehouse-db`: the operator starts
+     PostgreSQL 17, creates the database `sklad` owned by `warehouse` with the
+     password from the Secret, and exposes it as the Service `warehouse-db-rw`;
+   - the Deployment `warehouse`, which pulls the image from GHCR, reads its
+     settings from a ConfigMap and its credentials from the two Secrets,
+     connects to `warehouse-db-rw` over JDBC and runs the Flyway migrations on
+     start, and the Service `warehouse` in front of it.
+5. **Ready.** The pod passes its readiness probe once the database answers.
+   Argo CD reports all four Applications as Synced and Healthy, and the app is
+   reachable with `kubectl port-forward`.
 
-1. `scripts/up.sh` creates the cluster, loads the Sealed Secrets key, installs
-   Argo CD and applies one object: the root Application.
-2. The root Application renders `clusters/kind`, which holds one Application
-   per component (app-of-apps).
-3. Sync waves order the rollout: the platform (wave -1) must be Healthy before
-   the warehouse app (wave 0) is created. Inside the app, the SealedSecrets go
-   first, then the database, then the Deployment and Service.
+Changing anything later works the same way: commit to this repository and Argo
+CD applies the difference (automated sync with prune and self-heal).
 
 ## Repository layout
 
